@@ -1,0 +1,115 @@
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      grasscutter_repo:
+        type: string
+        description: Grasscutter repository
+        required: true
+        default: MeChen618/AstaPS
+        # default: capyb2222/LunaGC
+        # default: girluh/LunaGC
+      grasscutter_resources_repo:
+        type: string
+        description: Grasscutter Resources repository
+        required: true
+        default: MeChen618/AstaPS-Resource
+        # default: capyb2222/LunaGC-Resources
+        # default: girluh/LunaGC-Resources
+      build_hk4e_patch_universal:
+        type: boolean
+        description: Build HK4E Patch Universal
+        required: true
+        default: false
+      hk4e_patch_universal_repo:
+        type: string
+        description: HK4E Patch Universal repository
+        required: true
+        default: capyb2222/animegamepatch
+
+jobs:
+  grasscutter:
+    name: grasscutter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout grasscutter
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.grasscutter_repo }}
+          path: grasscutter
+      - name: Checkout grasscutter resources
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.grasscutter_resources_repo }}
+          path: grasscutter/resources
+
+      - name: Set up Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Build jar
+        working-directory: grasscutter
+        run: chmod +x ./gradlew && ./gradlew jar -PskipHandbook=1 -Dorg.gradle.jvmargs=-Xmx4g
+
+      - name: Write ServerStart.cmd
+        id: package
+        working-directory: grasscutter
+        run: |
+          name=$(basename -- *.jar .jar)
+          test -f "$name.jar"
+          printf '@echo off\r\njava -jar "%s.jar"\r\n' "$name" > ServerStart.cmd
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.package.outputs.name }}
+          if-no-files-found: error
+          path: |
+            grasscutter/*.jar
+            grasscutter/ServerStart.cmd
+
+            grasscutter/data/**
+            grasscutter/resources/**
+
+            grasscutter/docs/**
+            grasscutter/GM Handbook/**
+            grasscutter/README*.md
+
+            grasscutter/lua/**
+            grasscutter/plugins/**
+
+            grasscutter/keystore.p12
+
+  hk4e-patch-universal:
+    if: ${{ inputs.build_hk4e_patch_universal }}
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ inputs.hk4e_patch_universal_repo }}
+
+      - name: Set up nightly
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Build release
+        shell: pwsh
+        run: |
+          cargo build --release --target x86_64-pc-windows-msvc
+          Copy-Item target\x86_64-pc-windows-msvc\release\ext.dll Astrolabe.dll
+
+      - name: Upload Astrolabe.dll
+        uses: actions/upload-artifact@v7
+        with:
+          name: hk4e-patch-universal
+          if-no-files-found: error
+          path: Astrolabe.dll
